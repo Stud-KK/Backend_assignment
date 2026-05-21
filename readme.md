@@ -35,9 +35,9 @@ go run main.go
 
 Server starts on **http://localhost:8080**
 
-For full API documentation and interactive testing, see the [API Docs](#api-documentation).
+**Live API:** https://backendassignment-production-452e.up.railway.app
 
----
+**Live Swagger Docs:** https://backendassignment-production-452e.up.railway.app/docs
 
 ## Endpoints Overview
 
