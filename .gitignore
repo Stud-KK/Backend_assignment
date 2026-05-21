@@ -1,0 +1,19 @@
+# Go build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go test cache
+*.test
+*.out
+
+# Go module download cache
+vendor/
+
+# VS Code settings
+.vscode/
+
+# Environment files
+.env
