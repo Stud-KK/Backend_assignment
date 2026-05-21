@@ -1,0 +1,427 @@
+openapi: 3.0.0
+info:
+  title: Source Asia Backend API
+  description: |
+    A REST API service implementing:
+    - **Part 1**: A rate-limited request endpoint (max 5 requests/minute per user)
+    - **Part 2**: A product catalog with paginated listing and media management
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: Rate Limiter
+    description: Part 1 – Rate-limited request endpoints
+  - name: Products
+    description: Part 2 – Product catalog endpoints
+
+paths:
+  /request:
+    post:
+      tags:
+        - Rate Limiter
+      summary: Submit a rate-limited request
+      description: |
+        Accepts a request from a user if they are within their rate limit.
+        Each user_id is allowed a maximum of **5 accepted requests per minute**.
+        Exceeding the limit returns 429 Too Many Requests.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+                - payload
+              properties:
+                user_id:
+                  type: string
+                  description: Non-empty user identifier
+                  example: alice
+                payload:
+                  description: Any valid JSON value
+                  example: { "msg": "hello" }
+      responses:
+        "201":
+          description: Request accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: accepted
+                  user_id:
+                    type: string
+                    example: alice
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2026-05-21T10:00:00Z"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                missing_user_id:
+                  value: { "error": "user_id is required and must be non-empty" }
+                missing_payload:
+                  value: { "error": "payload is required" }
+                invalid_json:
+                  value: { "error": "invalid JSON body" }
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: rate limit exceeded
+                  message:
+                    type: string
+                    example: "max 5 requests per minute allowed for user 'alice'"
+
+  /stats:
+    get:
+      tags:
+        - Rate Limiter
+      summary: Get per-user rate limit statistics
+      description: |
+        Returns statistics for all users that have ever sent a request.
+        - `accepted_in_window`: requests accepted in the **current active** 1-minute window (resets when window rolls over)
+        - `rejected_total`: **cumulative** rejected requests since server start (never resets)
+      responses:
+        "200":
+          description: Per-user statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UserStats"
+              example:
+                users:
+                  - user_id: alice
+                    accepted_in_window: 3
+                    rejected_total: 2
+                  - user_id: bob
+                    accepted_in_window: 5
+                    rejected_total: 0
+
+  /products:
+    post:
+      tags:
+        - Products
+      summary: Create a new product
+      description: |
+        Creates a new product with optional media URLs.
+        - SKU must be unique across all products
+        - All URLs must start with http:// or https://
+        - Maximum 20 URLs per image_urls or video_urls array
+        - Maximum URL length is 2048 characters
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProductRequest"
+      responses:
+        "201":
+          description: Product created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductDetail"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                missing_name:
+                  value: { "error": "name is required and must be non-empty" }
+                missing_sku:
+                  value: { "error": "sku is required and must be non-empty" }
+                invalid_url:
+                  value: { "error": "image_urls: invalid URL (must start with http:// or https://): not-a-url" }
+        "409":
+          description: SKU already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: a product with this SKU already exists
+
+    get:
+      tags:
+        - Products
+      summary: List products (paginated)
+      description: |
+        Returns a paginated list of products.
+        **Does not return full image_urls or video_urls arrays** — only counts and an optional thumbnail.
+        This keeps the response fast even with thousands of products and media URLs stored.
+      parameters:
+        - name: limit
+          in: query
+          description: Number of products per page (default 20, max 100)
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+            minimum: 1
+          example: 10
+        - name: offset
+          in: query
+          description: Number of products to skip (default 0)
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+          example: 0
+      responses:
+        "200":
+          description: Paginated product list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    description: Total number of products in the store
+                    example: 1
+                  offset:
+                    type: integer
+                    example: 0
+                  limit:
+                    type: integer
+                    example: 20
+                  products:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProductListItem"
+        "400":
+          description: Invalid pagination parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /products/{id}:
+    get:
+      tags:
+        - Products
+      summary: Get full product detail
+      description: |
+        Returns the full product including all image_urls and video_urls arrays.
+        This is the only endpoint that loads the complete media arrays.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: string
+          example: prod_1
+      responses:
+        "200":
+          description: Full product detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductDetail"
+        "404":
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "product not found: prod_99"
+
+  /products/{id}/media:
+    post:
+      tags:
+        - Products
+      summary: Append media URLs to a product
+      description: |
+        Appends new image and/or video URLs to an existing product.
+        At least one of image_urls or video_urls must be provided and non-empty.
+        All URL validation rules apply (http/https, max length, max count).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: string
+          example: prod_1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: At least one field must be provided and non-empty
+              properties:
+                image_urls:
+                  type: array
+                  items:
+                    type: string
+                  example:
+                    - https://cdn.example.com/products/sku-001/img-3.jpg
+                video_urls:
+                  type: array
+                  items:
+                    type: string
+                  example:
+                    - https://cdn.example.com/products/sku-001/tour.mp4
+      responses:
+        "200":
+          description: Updated product with all media
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductDetail"
+        "400":
+          description: No URLs provided or validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: at least one of image_urls or video_urls must be provided
+        "404":
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+
+    UserStats:
+      type: object
+      properties:
+        user_id:
+          type: string
+          example: alice
+        accepted_in_window:
+          type: integer
+          description: Accepted requests in the current active 1-minute window
+          example: 3
+        rejected_total:
+          type: integer
+          description: Cumulative rejected requests since server start
+          example: 2
+
+    CreateProductRequest:
+      type: object
+      required:
+        - name
+        - sku
+      properties:
+        name:
+          type: string
+          description: Product name (required, non-empty)
+          example: Widget A
+        sku:
+          type: string
+          description: Stock keeping unit — must be unique (required, non-empty)
+          example: SKU-001
+        image_urls:
+          type: array
+          description: Optional list of image URLs (max 20, must be http/https)
+          items:
+            type: string
+          example:
+            - https://cdn.example.com/products/sku-001/img-1.jpg
+            - https://cdn.example.com/products/sku-001/img-2.jpg
+        video_urls:
+          type: array
+          description: Optional list of video URLs (max 20, must be http/https)
+          items:
+            type: string
+          example:
+            - https://cdn.example.com/products/sku-001/demo.mp4
+
+    ProductListItem:
+      type: object
+      description: Lightweight product representation for list views — no media URL arrays
+      properties:
+        id:
+          type: string
+          example: prod_1
+        name:
+          type: string
+          example: Widget A
+        sku:
+          type: string
+          example: SKU-001
+        image_count:
+          type: integer
+          description: Number of images stored for this product
+          example: 2
+        video_count:
+          type: integer
+          description: Number of videos stored for this product
+          example: 1
+        thumbnail_url:
+          type: string
+          description: First image URL (if any), for rendering in list/grid views
+          example: https://cdn.example.com/products/sku-001/img-1.jpg
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-05-21T10:00:00Z"
+
+    ProductDetail:
+      type: object
+      description: Full product representation including all media URL arrays
+      properties:
+        id:
+          type: string
+          example: prod_1
+        name:
+          type: string
+          example: Widget A
+        sku:
+          type: string
+          example: SKU-001
+        image_urls:
+          type: array
+          items:
+            type: string
+          example:
+            - https://cdn.example.com/products/sku-001/img-1.jpg
+            - https://cdn.example.com/products/sku-001/img-2.jpg
+        video_urls:
+          type: array
+          items:
+            type: string
+          example:
+            - https://cdn.example.com/products/sku-001/demo.mp4
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-05-21T10:00:00Z"
