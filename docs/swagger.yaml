@@ -8,6 +8,8 @@ info:
   version: 1.0.0
 
 servers:
+  - url: https://backendassignment-production-452e.up.railway.app
+    description: Live production server (Railway)
   - url: http://localhost:8080
     description: Local development server
 
