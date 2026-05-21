@@ -1,6 +1,6 @@
 module source-asia-backend
 
-go 1.26.3
+go 1.23
 
 require github.com/swaggo/http-swagger v1.3.4
 
