@@ -36,6 +36,7 @@ go run main.go
 Server starts on **http://localhost:8080**
 
 **Live API:** https://backendassignment-production-452e.up.railway.app
+ Note: The base URL returns 404 as there is no root handler — use specific endpoints like /stats, /products, or visit the Swagger docs below.
 
 **Live Swagger Docs:** https://backendassignment-production-452e.up.railway.app/docs
 
